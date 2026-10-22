@@ -53,7 +53,7 @@ def _check_crs(value):
         raise MeshError("Max_Ela uses m²: reproject basepoly and structures to a projected CRS with metre units first.")
 
 
-def read_basepoly(data: bytes | str, filename: str = "basepoly.geojson") -> BasePoly:
+def read_basepoly(data: bytes | str, filename: str = "basepoly.geojson", *, field_mapping: dict | None = None) -> BasePoly:
     """GeoJSON or ZIP with one SHP/DBF pair. ZIP members are never extracted."""
     warnings = []
     try:
@@ -93,6 +93,12 @@ def read_basepoly(data: bytes | str, filename: str = "basepoly.geojson") -> Base
         for number, feature in enumerate(features, 1):
             properties = feature.get("properties") or {}
             fields = {str(k).strip().casefold(): v for k, v in properties.items()}
+            for target, source in (field_mapping or {}).items():
+                if target not in {"mesh", "use_ela", "max_ela"}:
+                    raise MeshError(f"Unsupported field mapping: {target}.")
+                if source not in properties:
+                    raise MeshError(f"Feature {number}: mapped field {source!r} is missing.")
+                fields[target] = properties[source]
             mode = str(fields.get("mesh") or "").strip().casefold() if "mesh" in fields else "triangular"
             if mode in ("", "exclude"):
                 mode = "exclude"

@@ -1,4 +1,4 @@
-PaveForge 0.3 - laptop quick start
+PaveForge 0.4 - laptop quick start
 ================================
 
 PORTABLE WINDOWS EXE (Python installation not needed)
@@ -25,8 +25,15 @@ CREATE UNSTRUCTURED 2DM
 - Turn OFF Use the example structure when supplying your own polygon.
 - Optionally upload your structure 2DM to join it during generation.
 - Click Generate unstructured mesh; inspect warnings, then download the result ZIP.
-- Fast mode enforces maximum areas without angle refinement. Balanced and Quality
-  profiles can produce more elements and take longer near narrow boundaries.
+- Near structures, paving defaults to at most 10 m2 within 10 m. Both values
+  are configurable; smaller enabled basepoly limits remain effective.
+- All triangles and quads must pass 5 to 160 degree interior-angle limits before
+  export. Source connectivity repair keeps original XYZ and parent attributes.
+- Fixed acute geometry can prevent compliance. Download the angle-failure CSV
+  and validation report when exports are blocked. A diagnostic export requires
+  explicitly turning off Require angle limits before mesh export.
+- Efficient targets 10 degrees during generation; Previous tool targets 26.
+  These generation targets do not replace the measured all-element checks.
 - Keep outside structure preserves source pieces outside basepoly and reports the
   extended reference domain. It does not build bridges outside Triangular features.
 - With a structure imported, the ZIP includes both merged.2dm and paving-only
@@ -36,6 +43,12 @@ MERGE EXISTING MESHES
 - Select Merge existing 2DM meshes.
 - Upload your unstructured 2DM and your structure 2DM. Disable the example structure.
 - Optionally provide basepoly so the app can identify and fill unintended gaps.
+- Erase and refill around roads / trenches defaults to an 8 m selection distance,
+  erase marker 99, fill maximum area 10 m2, and EPSG:25832 (ETRS89 / UTM 32N).
+- Selected whole base cells are marked for removal and replaced with fill.
+  Existing material-99 cells outside the selection stay intact.
+- The CRS is a declaration; both input meshes must already use it.
+- Turn off erase/refill for a direct conforming merge.
 - Original node values and element attributes are preserved. Splitting an element
   creates child elements with the same attributes. Colliding IDs are remapped and
   documented in attributes.json. Conflicting values at a shared node are rejected.
@@ -43,4 +56,5 @@ MERGE EXISTING MESHES
 Use the same projected CRS with metre units for all inputs.
 The native 2DM keeps extra element attributes. Medit has only one material reference;
 keep attributes.json with the .mesh file to retain the full attributes and source IDs.
+merged.2dm already includes the structure. Use it directly as the complete result.
 Press Ctrl+C in the terminal to stop the app.

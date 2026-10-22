@@ -7,17 +7,21 @@ from shapely import polygons, union_all, coverage_is_valid, coverage_union_all
 
 from .basepoly import BasePoly, Region
 from .mesher import generate_basepoly
-from .model import Mesh, MeshError, NodeIndex
+from .model import Mesh, MeshError, NodeIndex, default_weld_tolerance
 from .validation import polygon_parts, validate_mesh
 
 
 def merge_meshes(paving: Mesh, structure: Mesh, basepoly: BasePoly | None = None,
                  default_max_area: float = 25., tolerance: float | None = None, *,
-                 max_elements: int = 2_000_000, allow_structure_outside: bool = False) -> Mesh:
+                 max_elements: int = 2_000_000, allow_structure_outside: bool = False,
+                 minimum_angle: float = 10., angle_min: float = 5., angle_max: float = 160.,
+                 enforce_angle_limits: bool = False, repair_source_angles: bool = False,
+                 near_structure_area: float | None = None, near_structure_distance: float = 10.,
+                 fixed_segments: bool = False, boundary_cleanup_distance: float = 0.) -> Mesh:
     start = perf_counter()
     xy = np.concatenate([paving.nodes, structure.nodes])[:, :2]
     span = float(np.linalg.norm(np.ptp(xy, axis=0)))
-    tolerance = max(span * 1e-10, 1e-10) if tolerance is None else tolerance
+    tolerance = default_weld_tolerance(span) if tolerance is None else tolerance
     if not np.isfinite(tolerance) or tolerance <= 0:
         raise MeshError("Weld tolerance must be positive.")
     index = NodeIndex(tolerance)
@@ -82,17 +86,27 @@ def merge_meshes(paving: Mesh, structure: Mesh, basepoly: BasePoly | None = None
         warnings.append("No basepoly supplied: coverage is checked against the input cells only. Existing empty areas cannot be identified as intended exclusions or accidental gaps.")
     fast = True
     try:
-        report = validate_mesh(combined, expected, tolerance)
+        report = validate_mesh(combined, expected, tolerance, angle_min=angle_min, angle_max=angle_max)
+        if repair_source_angles and not report["quality"]["angles_passed"]:
+            raise MeshError("Angle repair requested.")
     except MeshError as exc:
-        if not any(word in str(exc).lower() for word in ("hanging", "coverage", "disconnected")):
+        if not any(word in str(exc).lower() for word in ("hanging", "coverage", "disconnected", "angle repair")):
             raise
         fast = False
         plan = basepoly or BasePoly([Region(p, i + 1) for i, p in enumerate(polygon_parts(expected))])
         combined = generate_basepoly(plan, default_max_area, combined, tolerance,
-                                     max_elements=max_elements, allow_structure_outside=allow_structure_outside)
+                                     max_elements=max_elements, allow_structure_outside=allow_structure_outside,
+                                     minimum_angle=minimum_angle, angle_min=angle_min, angle_max=angle_max,
+                                     enforce_angle_limits=enforce_angle_limits, repair_source_angles=repair_source_angles,
+                                     near_structure_area=near_structure_area, near_structure_distance=near_structure_distance,
+                                     fixed_segments=fixed_segments, boundary_cleanup_distance=boundary_cleanup_distance)
         report = combined.report
     report.update({"merge_fast_path": fast, "node_id_map": node_maps, "element_id_map": element_maps,
+                   "weld_tolerance": tolerance, "angle_limits_enforced": enforce_angle_limits,
+                   "export_blocked": enforce_angle_limits and not report["quality"]["angles_passed"],
                    "coverage_reference": "basepoly" if basepoly else "input cell union",
                    "elapsed_seconds": round(perf_counter() - start, 4)})
     combined.report = report
+    if fast and not report["quality"]["angles_passed"]:
+        combined.warnings.append("Imported elements fail the requested angle limits; inspect the all-element quality report.")
     return combined

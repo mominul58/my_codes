@@ -3,6 +3,7 @@ import numpy as np
 import shapely
 
 from .model import Mesh, MeshError
+from .quality import quality_report
 
 
 def polygon_parts(geometry):
@@ -15,12 +16,11 @@ def polygon_parts(geometry):
     return []
 
 
-def validate_mesh(mesh: Mesh, domain, tolerance: float) -> dict:
+def validate_mesh(mesh: Mesh, domain, tolerance: float, *, angle_min=5., angle_max=160.) -> dict:
     if not mesh.cells:
         raise MeshError("Mesher returned no elements.")
     polys = np.empty(len(mesh.cells), dtype=object)
     all_edges, all_owners = [], []
-    min_angle = None
     for size in (3, 4):
         selection = np.array([i for i, c in enumerate(mesh.cells) if len(c.nodes) == size], dtype=int)
         if not len(selection):
@@ -31,13 +31,6 @@ def validate_mesh(mesh: Mesh, domain, tolerance: float) -> dict:
         edges = np.stack((connectivity, np.roll(connectivity, -1, axis=1)), axis=2)
         all_edges.append(np.sort(edges.reshape(-1, 2), axis=1))
         all_owners.append(np.repeat(selection, size))
-        if size == 3:
-            paving = np.array([not mesh.cells[i].structure for i in selection])
-            xy = coords[paving]
-            if len(xy):
-                a, b = np.roll(xy, -1, axis=1) - xy, np.roll(xy, -2, axis=1) - xy
-                cosine = np.einsum("ijk,ijk->ij", a, b) / (np.linalg.norm(a, axis=2) * np.linalg.norm(b, axis=2))
-                min_angle = float(np.degrees(np.arccos(np.clip(cosine, -1, 1))).min())
     areas = shapely.area(polys)
     if not shapely.is_valid(polys).all() or (areas <= tolerance**2).any():
         raise MeshError("Mesher produced a degenerate or self-intersecting element.")
@@ -47,9 +40,9 @@ def validate_mesh(mesh: Mesh, domain, tolerance: float) -> dict:
         raise MeshError("Mesh has unreferenced nodes.")
     points = shapely.points(mesh.nodes[:, :2])
     tree = shapely.STRtree(points)
-    first, second = tree.query(points, predicate="dwithin", distance=tolerance * .25)
+    first, second = tree.query(points, predicate="dwithin", distance=tolerance)
     if (first != second).any():
-        raise MeshError("Mesh has duplicate XY nodes.")
+        raise MeshError(f"Mesh has duplicate/near-duplicate XY nodes within {tolerance:g} m. No mesh may be exported.")
     unique, inverse, counts = np.unique(edges, axis=0, return_inverse=True, return_counts=True)
     if (counts > 2).any():
         raise MeshError("Nonmanifold edge: more than two elements share an edge.")
@@ -81,9 +74,14 @@ def validate_mesh(mesh: Mesh, domain, tolerance: float) -> dict:
     overlap = max(0., float(areas.sum()) - covered.area)
     gap = domain.difference(covered).area
     outside = covered.difference(domain).area
+    expected_holes = sum(len(p.interiors) for p in polygon_parts(domain))
+    actual_holes = sum(len(p.interiors) for p in polygon_parts(covered))
+    if actual_holes != expected_holes:
+        raise MeshError(f"Coverage has {actual_holes:,} holes; expected {expected_holes:,}. Unintended voids or lost exclusions are not permitted.")
     if max(overlap, gap, outside) > area_tolerance:
         raise MeshError(f"Coverage validation failed: gap={gap:g}, overlap={overlap:g}, outside={outside:g}.")
     paving = np.array([not c.structure for c in mesh.cells])
+    quality = quality_report(mesh, angle_min, angle_max)
     return {
         "nodes": len(mesh.nodes), "elements": len(mesh.cells),
         "paving_triangles": sum(not c.structure and len(c.nodes) == 3 for c in mesh.cells),
@@ -92,7 +90,9 @@ def validate_mesh(mesh: Mesh, domain, tolerance: float) -> dict:
         "duplicate_nodes": 0, "hanging_nodes": 0, "unused_nodes": 0,
         "gap_area": gap, "overlap_area": overlap, "outside_area": outside,
         "domain_area": domain.area, "area_validation_tolerance": area_tolerance,
-        "intentional_holes": sum(len(p.interiors) for p in polygon_parts(domain)),
+        "intentional_holes": expected_holes, "covered_holes": actual_holes,
         "max_paving_area": float(areas[paving].max()) if paving.any() else 0.,
-        "minimum_paving_angle": min_angle, "vectorized_coverage": fast,
+        "minimum_paving_angle": quality["minimum_paving_angle"], "vectorized_coverage": fast,
+        "quality": quality,
+        "duplicate_check_tolerance": tolerance,
     }

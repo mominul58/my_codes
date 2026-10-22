@@ -9,6 +9,12 @@ class MeshError(ValueError):
     """An input or mesh cannot safely satisfy the conforming-mesh contract."""
 
 
+def default_weld_tolerance(span):
+    # Metre-based GIS workflows commonly compare nodes at millimetre precision.
+    # Keep very small synthetic domains usable as well.
+    return max(1e-10, min(.001, span * 1e-5))
+
+
 @dataclass(frozen=True)
 class Cell:
     nodes: tuple[int, ...]
@@ -35,7 +41,8 @@ def select_cells(mesh: Mesh, *, structure: bool, preserve_ids: bool = True) -> M
     used = sorted({n for c in cells for n in c.nodes})
     mapping = {old: new for new, old in enumerate(used)}
     return Mesh(mesh.nodes[used].copy(), [replace(c, nodes=tuple(mapping[n] for n in c.nodes), id=c.id if preserve_ids else None) for c in cells],
-                list(mesh.warnings), {"subset_of_validated_mesh": True, "nodes": len(used), "elements": len(cells), "ids_renumbered": not preserve_ids},
+                list(mesh.warnings), {"subset_of_validated_mesh": True, "nodes": len(used), "elements": len(cells), "ids_renumbered": not preserve_ids,
+                                      "export_blocked": mesh.report.get("export_blocked", False)},
                 [mesh.node_ids[n] for n in used] if preserve_ids and mesh.node_ids else None,
                 [mesh.node_attributes[n] for n in used] if mesh.node_attributes else None)
 

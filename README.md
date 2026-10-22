@@ -36,7 +36,7 @@ In the app, select **Create unstructured mesh**, upload basepoly, optionally imp
 
 Field names and Mesh values are case-insensitive. If `Max_Ela` is absent/blank, the fallback area is used. A plain polygon without a Mesh field is treated as Triangular. Unknown Mesh values and invalid enabled area values are rejected. Exclude features may overlay Triangular features; overlapping Triangular features are rejected to avoid ambiguous sizing. A layer containing only Exclude/blank features produces no mesh file.
 
-The shapefile aliases **`useEleA`** and **`maxEleA`** are supported too. A supplied file with `useEleA=0` uses the fallback even when maxEleA is populated; the app does not silently change the enable flags.
+The shapefile aliases **`useEleA`** and **`maxEleA`** are supported too. A supplied file with `useEleA=0` uses the fallback even when maxEleA is populated; the app does not silently change the enable flags. The **Basepoly attribute check** shows the original fields, resolved mesh mode, and effective maximum area before generation. The dashboard/CLI fallback now defaults to **40 m²**, matching `a40` in the previous tool; enabled per-feature areas still override it.
 
 **Other polygon input:** GeoJSON Polygon/MultiPolygon, Feature, FeatureCollection, or plain text with one `x,y` pair per line:
 
@@ -55,13 +55,19 @@ The last point can repeat the first. Interior rings and Exclude polygons remain 
 
 1. Validate the basepoly and source elements. Weld coincident/near-coincident coordinates within the reported tolerance, keeping the first representative node's exact XYZ. Conflicting elevations or node attributes at a shared node are rejected.
 2. Subtract Exclude areas, preserve all regional boundaries, and build one planar straight-line graph with the structure edges.
-3. Use one native Triangle constrained Delaunay call with regional attributes and per-region maximum areas. Interface segments may subdivide so generated paving actually meets `Max_Ela` within relative numerical tolerance of 1e-7; it is not just a size suggestion.
+3. Use native Triangle constrained Delaunay meshing with regional attributes and per-region maximum areas, followed by adaptive area refinement near structures. No buffer border is inserted as an extra constrained edge. Interface segments may subdivide so generated paving actually meets `Max_Ela` within relative numerical tolerance of 1e-7; it is not just a size suggestion.
 4. Split source cells when required by new/hanging interface nodes. Children retain the parent material and every additional attribute. Unaffected convex quads/triangles remain intact. New interface Z values interpolate along original edges; original source node values stay unchanged.
 5. Validate before enabling export: coverage against the reference domain, no overlapping/outside area, no duplicate/orphan/hanging nodes, manifold edges, and the expected connected-component count. Explicit holes and Exclude areas are excluded from paving coverage. A structure supplied inside an excluded footprint is merged back as explicit structure elements, without generating paving over it.
 
-Area constraints apply to **new paving triangles**, not existing input elements whose values/attributes must be retained. The app/CLI default to Fast mode: area constraints without an angle target. Balanced (20°) and Quality (25°) can require substantially more elements near narrow geometry. All profiles retain coverage and topology validation. Acute fixed input corners can still force small angles, which are reported; Fast mode is not a promise of simulation-quality elements. The Python API retains a legacy length-based `generate_mesh` entry point and a mode that keeps fixed interface elements; the app uses strict regional area limits and conforming interface refinement.
+Area constraints apply to **new paving triangles**, not existing input elements whose values/attributes must be retained. **Refine paving near structures** defaults to a **10 m²** maximum within a configurable **10 m** distance. Where enabled regional limits and the structure-band limit both apply, the smaller area wins. Original structure cells keep their sizes unless connectivity repair splits them.
 
-Meshing is planar in XY. Original source Z values are retained; new noninterface paving nodes use the configured constant elevation (default zero). This is not a terrain interpolation or 3D volume mesher. Near-coincident nodes welded together use one original representative XY; the alias mapping records the change. Use a smaller tolerance when small features matter.
+Every triangle and quadrilateral is checked against **5° minimum / 160° maximum interior angles** by default, including source elements and reflex quad angles. The app/CLI block mesh exports when any cell fails. The preview, validation JSON, and a CSV listing failing exported element IDs remain available. Explicitly disable strict acceptance in the dashboard or use `--diagnostic-export` only when you want a diagnostic mesh with known angle failures. The Python API reports angles by default; pass `enforce_angle_limits=True` to apply the same export gate.
+
+**Efficient · 10° target** is the default generation profile. **Previous tool · 26° target** matches `q26`; Balanced targets 20° and Fast omits angle refinement. These are Triangle generation targets, separate from measured acceptance limits. Quality refinement can require more time and elements. Source connectivity repair is enabled in the dashboard/CLI: bounded local retriangulation retains original node XYZ and copies parent attributes to child cells, with interpolated Z for new interior nodes. Two bounded passes may remesh adjacent cells with identical material, attributes, source type, and region; changed interfaces are conformed again. Original IDs are retained, and patch parent/replacement IDs are recorded. Original fixed acute corners and attribute boundaries can make angle limits impossible even after repair; the app reports these failures instead of claiming compliance. The Python API retains a legacy length-based `generate_mesh` entry point and a mode that keeps fixed interface elements.
+
+Advanced controls include **Keep constraint segments fixed (previous tool: YY)** and **Align basepoly to structure within**. Alignment defaults to **0.10 m** for generation and **0.11 m** for the merge dashboard, inspired by the supplied tools' cleanup distances. It projects nearby polygon vertices onto immutable structure edges and snaps nearby corners; it is an independently implemented alignment operation, rather than a replacement for every ArcGIS cleanup function. The report gives changed-part counts and symmetric-difference area. Original source XYZ remains fixed. Set alignment to **0** for exact basepoly geometry. A cleanup that collapses a feature is rejected. Field selectors in the attribute check can override automatic Mesh/useEleA/maxEleA detection.
+
+Meshing is planar in XY. Original source Z values are retained; new noninterface paving nodes use the configured constant elevation (default zero). This is not a terrain interpolation or 3D volume mesher. Near-coincident nodes welded together use one original representative XY; the alias mapping records the change. Automatic welding uses **1 mm** for large metre-based domains and a smaller distance for very small domains. Validation checks the **full** reported weld distance. Boundaries are noded again after welding, and actual graph faces receive regional seeds. Use a smaller explicit tolerance when submillimetre features must remain separate.
 
 Overlapping, self-intersecting, degenerate, or incompatible-value input elements are rejected. Unused input ND records must be removed or attached to elements. The default budget is 2,000,000 output elements, configurable up to 5,000,000; large jobs require more memory. The preview samples large meshes for responsiveness while exports retain every element.
 
@@ -69,9 +75,21 @@ The app's **Keep outside structure** setting preserves imported structure extend
 
 ## Fast merge of existing 2DM files
 
-Select **Merge existing 2DM meshes** and upload paving plus structure files. Conforming files use node welding and validation without triangulation. Hanging-node interfaces use a repair fallback that splits affected cells and retains their attributes. Matching coordinates with incompatible elevations/attributes are rejected because one shared node cannot preserve two different values.
+Select **Merge existing 2DM meshes** and upload the unstructured base mesh plus the road/trench structure. **Erase and refill around roads / trenches** is enabled initially, with controls matching the previous tool:
 
-Supply basepoly to detect and fill accidental gaps. Without it, coverage is only checked against the union of supplied cells: the app cannot know whether an existing empty area is intended. This limitation is explicitly reported. Input node/element ID collisions are resolved with complete maps; structure IDs take precedence.
+| Control | Default / behavior |
+| --- | --- |
+| Selection distance | **8 m**. Select whole base elements at this distance or closer to the structure, including overlapping elements. |
+| Erase material marker | **99**. Record selected elements under this marker, then remove them. Existing material-99 cells elsewhere remain intact. |
+| Fill element maximum area | **10 m²**. Refill the uncovered footprint with conforming triangles. Smaller enabled basepoly limits remain effective. |
+| Fill material | **1**, configurable independently from the erase marker. |
+| Coordinate system | **EPSG:25832 — ETRS89 / UTM zone 32N**. Declares the common input CRS; coordinates are not reprojected. |
+
+Unselected base cells and structure cells retain their node values and attributes; interface/quality repairs may create children with parent attributes. The report records erased IDs and original materials/attributes. Without basepoly, coverage is checked against the **original base footprint plus structure**, retaining existing holes. With basepoly, its Triangular/Exclude rules define the fill domain.
+
+Turn off erase/refill for a direct merge. Conforming files then use node welding and validation without paving. Hanging-node interfaces use a repair fallback that splits affected cells and retains their attributes. Matching coordinates with incompatible elevations/attributes are rejected because one shared node cannot preserve two different values.
+
+For direct merging, supply basepoly to detect and fill accidental gaps. Without it, direct-merge coverage is checked against the input cell union. Erase/refill retains the original base footprint as its reference even when no basepoly is supplied. Input node/element ID collisions are resolved with complete maps; structure IDs take precedence.
 
 ## Command line
 
@@ -81,6 +99,18 @@ Supply basepoly to detect and fill accidental gaps. Without it, coverage is only
   --structure examples/structure.2dm \
   --output outputs/example
 ```
+
+For the road/trench transition workflow (basepoly is optional):
+
+```bash
+.venv/bin/paveforge --merge-paving basemesh.2dm --structure roads-trenches.2dm \
+  --transition --selection-distance 8 --erase-material 99 --fill-area 10 \
+  --crs EPSG:25832 --keep-outside-structure --output outputs/merged
+```
+
+Generation controls include `--near-structure-area 10 --near-structure-distance 10`,
+`--angle-min 5 --angle-max 160`, and `--min-angle 26` for the previous tool's generation target. Add `--fixed-segments` for its `YY` behavior and `--boundary-cleanup 0.11` for merge alignment (CLI default 0.10 m).
+An angle failure saves `.json` and `.angle-failures.csv` diagnostics and exits with status 2 without writing mesh files.
 
 This creates `outputs/example.2dm`, `.mesh`, `.json`, and `.attributes.json`. Omit `--structure` for paving only. Optional controls: `--tolerance`, `--elevation`, and `--material`. `--max-area` is the fallback; per-feature enabled Max_Ela values override it. Legacy `--size` converts a length to equilateral-triangle area. Validation failures exit with status 2 before writing a new result. Successful runs overwrite the selected output paths. Exclude-only runs write no output.
 
@@ -92,7 +122,7 @@ This creates `outputs/example.2dm`, `.mesh`, `.json`, and `.attributes.json`. Om
 
 Medit output uses `MeshVersionFormatted 2`, `Dimension 3`, 3D vertices, Triangles and Quadrilaterals. It supports one material reference per element; it cannot directly carry every extended SMS attribute. Keep the attributes JSON sidecar with the Medit file. The compact v2 sidecar maps file-order nodes/elements to exported IDs and includes all additional attribute tokens, materials, structure IDs, feature IDs, Medit element ordering, and validation data. XYZ and connectivity are already present in the mesh file and are not duplicated in this compact sidecar. Native 2DM retains extended attributes directly. With structures present, the app's ZIP also includes a paving-only `unstruct.2dm` with unused nodes removed.
 
-Merged SMS records are sorted by their preserved IDs for reader compatibility. Paving-only subset files use fresh consecutive IDs while retaining the same XYZ values, connectivity, and attributes; there are no source structure elements to preserve in that standalone paving file.
+Merged SMS records are sorted by their preserved IDs for reader compatibility. Paving-only subset files use fresh consecutive IDs while retaining the same XYZ values, connectivity, and attributes; there are no source structure elements to preserve in that standalone paving file. **`merged.2dm` is the complete mesh, including structure.** Use that file directly. The ZIP's `unstruct.2dm` is an alternative subset, rather than an additional part to combine with `merged.2dm`. The ZIP includes `angle-failures.csv` (header only when all elements pass).
 
 ## Development and validation
 

@@ -7,9 +7,10 @@ from zipfile import ZipFile, ZIP_DEFLATED
 import plotly.graph_objects as go
 import streamlit as st
 
-from paveforge import generate_basepoly, read_basepoly, merge_meshes, read_2dm, write_2dm, write_medit
+from paveforge import generate_basepoly, read_basepoly, merge_meshes, merge_with_transition, read_2dm, write_2dm, write_medit
 from paveforge.formats import write_attributes, export_ids
 from paveforge.model import MeshError, select_cells
+from paveforge.quality import angle_failures_csv
 
 ROOT = Path(__file__).resolve().parent
 st.set_page_config(page_title="PaveForge · Mesh Studio", page_icon="◬", layout="wide")
@@ -35,23 +36,47 @@ with st.sidebar:
     polygon_upload = st.file_uploader("Upload basepoly", type=["zip", "geojson", "json", "txt"], help="For shapefiles, ZIP the matching .shp, .dbf, .shx, and .prj files together.")
     default = "0, 0\n120, 0\n120, 65\n95, 65\n95, 85\n0, 85"
     polygon_text = st.text_area("Or enter x, y coordinates", default, height=165)
-    st.caption("Projected metre coordinates. Shapefile fields: Mesh, use_Ela, Max_Ela.")
+    st.caption("Projected metre coordinates. Shapefile fields: Mesh, useEleA, maxEleA (use_Ela / Max_Ela also supported).")
     st.divider()
     st.caption("02 / STRUCTURE")
     structure_upload = st.file_uploader("Import structure mesh", type=["2dm"])
     demo_structure = st.checkbox("Use the example structure", value=True, disabled=structure_upload is not None)
     demo_basepoly = st.checkbox("Use example basepoly fields", value=False, disabled=polygon_upload is not None)
     paving_upload = st.file_uploader("Existing unstructured 2DM to merge", type=["2dm"]) if workflow.startswith("Merge") else None
+    transition_settings = None
+    if workflow.startswith("Merge"):
+        rebuild_transition = st.checkbox("Erase and refill around roads / trenches", value=True)
+        if rebuild_transition:
+            selection_distance = st.number_input("Selection distance (m)", min_value=0.0, value=8.0)
+            erase_material = st.number_input("Material ID to mark erased base elements", min_value=1, value=99, step=1)
+            fill_area = st.number_input("Maximum area for fill elements (m²)", min_value=0.000001, value=10.0)
+            fill_material = st.number_input("Fill material ID", min_value=1, value=1, step=1)
+            coordinate_system = st.text_input("Coordinate system", value="EPSG:25832", help="ETRS89 / UTM zone 32N. This declares the common input CRS; it does not transform 2DM coordinates.")
+            transition_settings = dict(selection_distance=selection_distance, erase_material=int(erase_material), fill_area=fill_area,
+                                       fill_material=int(fill_material), coordinate_system=coordinate_system)
+            st.caption("Select whole base cells within 8 m (or your chosen distance), mark them for removal, preserve the roads/trenches, and refill the transition. Material 99 is an erase marker. Remaining cells keep their attributes.")
     st.divider()
     st.caption("03 / PAVING")
-    size = st.number_input("Default Max_Ela · maximum area (m²)", min_value=0.000001, value=25.0, format="%.6f", help="Per-feature Max_Ela overrides this when use_Ela=1. use_Ela=0 uses this fallback.")
-    profile = st.selectbox("Meshing profile", ["Fast · area limits only", "Balanced · 20° target", "Quality · 25° target"])
-    angle = {"Fast · area limits only": 0., "Balanced · 20° target": 20., "Quality · 25° target": 25.}[profile]
+    size = st.number_input("Default maximum area (m²)", min_value=0.000001, value=40.0, format="%.6f", help="Enabled maxEleA overrides this. useEleA=0 uses this fallback, including rows with a populated maxEleA. 40 matches a40 in the previous tool.")
+    near_enabled = st.checkbox("Refine paving near structures", value=True)
+    near_area = st.number_input("Near-structure maximum area (m²)", min_value=0.000001, value=10.0, disabled=not near_enabled)
+    near_distance = st.number_input("Refinement distance from structure (m)", min_value=0.001, value=10.0, disabled=not near_enabled, help="Paving within this band uses the smaller of the regional limit and the near-structure limit. Imported structure areas are preserved.")
+    st.caption("04 / ELEMENT ANGLES · ALL TRIANGLES & QUADS")
+    angle_min = st.number_input("Minimum interior angle (°)", min_value=0.01, max_value=59.0, value=5.0)
+    angle_max = st.number_input("Maximum interior angle (°)", min_value=60.0, max_value=179.99, value=160.0)
+    strict_angles = st.checkbox("Require angle limits before mesh export", value=True)
+    repair_angles = st.checkbox("Repair source connectivity when needed", value=True, help="May triangulate affected cells and add interior nodes. Original node XYZ and all parent element attributes are kept. Fixed acute corners can still prevent compliance.")
+    profile = st.selectbox("Meshing profile", ["Efficient · 10° target", "Previous tool · 26° target", "Balanced · 20° target", "Fast · area only"])
+    angle = {"Efficient · 10° target": 10., "Previous tool · 26° target": 26., "Balanced · 20° target": 20., "Fast · area only": 0.}[profile]
+    st.caption("Targets guide generation. The separate angle checks decide whether every output element passes.")
     with st.expander("Advanced controls"):
         material = st.number_input("Paving material ID", min_value=1, value=1, step=1)
         elevation = st.number_input("New paving node elevation", value=0.0)
         custom_tolerance = st.checkbox("Set weld tolerance manually")
-        tolerance = st.number_input("Weld precision", min_value=1e-12, value=1e-7, format="%.12f") if custom_tolerance else None
+        tolerance = st.number_input("Node merge distance (m)", min_value=1e-12, value=.001, format="%.9f") if custom_tolerance else None
+        st.caption("Automatic node merging uses up to 0.001 m (1 mm). Every output node is checked at the full reported merge distance.")
+        fixed_segments = st.checkbox("Keep constraint segments fixed (previous tool: YY)", value=False, help="Disable segment subdivision. This can prevent area or angle limits from being met along coarse interfaces. Automatic interface subdivision is recommended for conforming fill.")
+        boundary_cleanup = st.number_input("Align basepoly to structure within (m)", min_value=0.0, value=.11 if workflow.startswith("Merge") else .1, format="%.4f", help="Inspired by the old 0.10 / 0.11 m cleanup settings. Aligns nearby polygon vertices to fixed source edges; reports changed footprint area. Original source XYZ stays fixed. Set zero to preserve basepoly geometry exactly.")
         keep_outside = st.checkbox("Keep outside structure", value=True, help="Preserve source structure beyond the basepoly footprint and report the extended merged domain. Paving still stays inside Triangular features.")
         element_budget = st.number_input("Element budget", min_value=100, max_value=5_000_000, value=2_000_000, step=100_000, help="Maximum output elements. Larger jobs need more memory.")
         st.caption("Original source node values and element attributes are preserved. If an interface splits, child elements inherit parent attributes. New interface elevations interpolate along source edges.")
@@ -65,21 +90,58 @@ except UnicodeError:
     st.error("Upload UTF-8 text files.")
     st.stop()
 
-fingerprint = hashlib.sha256(domain_data + json.dumps([domain_name, structure_text, workflow, size, tolerance, material, elevation, keep_outside, element_budget, angle]).encode() + (paving_upload.getvalue() if paving_upload else b"")).hexdigest()
+options = dict(near_structure_area=near_area if near_enabled else None, near_structure_distance=near_distance,
+               angle_min=angle_min, angle_max=angle_max, enforce_angle_limits=strict_angles, repair_source_angles=repair_angles,
+               fixed_segments=fixed_segments, boundary_cleanup_distance=boundary_cleanup)
 
 
 @st.cache_data(show_spinner=False, max_entries=4)
-def compute_mesh(data, filename, structure_data, paving_data, max_area, weld, mat, z, merging, outside, budget, quality_angle):
+def load_basepoly(data, filename, mapping=None):
+    return read_basepoly(data, filename, field_mapping=mapping)
+
+
+field_mapping = {}
+with st.expander("Basepoly attribute check", expanded=polygon_upload is not None):
+    try:
+        plan = load_basepoly(domain_data, domain_name)
+        fields = sorted({key for r in plan.regions for key in r.properties})
+        if fields:
+            columns = st.columns(3)
+            for column, label, target in zip(columns, ["Meshtype field", "Use maximum area field", "Maximum area field"], ["mesh", "use_ela", "max_ela"]):
+                choice = column.selectbox(label, ["Automatic", *fields])
+                if choice != "Automatic":
+                    field_mapping[target] = choice
+            if field_mapping:
+                plan = load_basepoly(domain_data, domain_name, field_mapping)
+        rows = [{**r.properties, "Feature": r.feature, "Resolved Mesh": r.mode,
+                 "Use maximum area": int(r.use_ela),
+                 "Effective maximum area (m²)": (r.max_area if r.use_ela and r.max_area is not None else size) if r.mode == "triangular" else None}
+                for r in plan.regions]
+        st.caption(f"{sum(r.mode == 'triangular' for r in plan.regions):,} Triangular parts; {sum(r.mode == 'exclude' for r in plan.regions):,} Exclude/blank parts. Near-structure refinement can reduce the effective area further.")
+        st.dataframe(rows, hide_index=True, width="stretch")
+    except MeshError as exc:
+        st.error(str(exc))
+
+fingerprint = hashlib.sha256(domain_data + json.dumps([domain_name, structure_text, workflow, size, tolerance, material, elevation, keep_outside, element_budget, angle, options, transition_settings, field_mapping]).encode() + (paving_upload.getvalue() if paving_upload else b"")).hexdigest()
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def compute_mesh(data, filename, structure_data, paving_data, max_area, weld, mat, z, merging, outside, budget, quality_angle, settings, transition, mapping):
     structure = read_2dm(structure_data) if structure_data else None
     if merging:
         if not paving_data or structure is None:
             raise MeshError("Upload an existing paving 2DM and a structure 2DM to merge.")
-        plan = read_basepoly(data, filename) if data else None
-        return merge_meshes(read_2dm(paving_data), structure, plan, max_area, weld, max_elements=budget, allow_structure_outside=outside)
-    return generate_basepoly(read_basepoly(data, filename), max_area, structure, weld, mat, z, max_elements=budget, allow_structure_outside=outside, minimum_angle=quality_angle)
+        plan = load_basepoly(data, filename, mapping) if data else None
+        if transition is not None:
+            return merge_with_transition(read_2dm(paving_data), structure, plan, tolerance=weld, max_elements=budget,
+                                         allow_structure_outside=outside, minimum_angle=quality_angle, **settings, **transition)
+        return merge_meshes(read_2dm(paving_data), structure, plan, max_area, weld, max_elements=budget, allow_structure_outside=outside, minimum_angle=quality_angle, **settings)
+    return generate_basepoly(load_basepoly(data, filename, mapping), max_area, structure, weld, mat, z, max_elements=budget, allow_structure_outside=outside, minimum_angle=quality_angle, **settings)
 
 
 if build:
+    st.session_state.pop("result", None)
+    st.session_state.pop("downloads", None)
     try:
         with st.spinner("Constraining edges, generating triangles, and checking connectivity…"):
             merging = workflow.startswith("Merge")
@@ -87,9 +149,8 @@ if build:
             # A supplied basepoly is required to infer and fill accidental gaps.
             mesh = compute_mesh(domain_data if not merging or polygon_upload or demo_basepoly else b"", domain_name,
                                 structure_text, paving_upload.getvalue().decode("utf-8-sig") if paving_upload else "",
-                                size, tolerance, int(material), elevation, merging, keep_outside, int(element_budget), angle)
-            st.session_state["result"] = (fingerprint, mesh)
-            if mesh.cells:
+                                size, tolerance, int(material), elevation, merging, keep_outside, int(element_budget), angle, options, transition_settings, field_mapping)
+            if mesh.cells and not mesh.report.get("export_blocked"):
                 sms, medit, attributes = write_2dm(mesh), write_medit(mesh), write_attributes(mesh, compact=True)
                 bundle = BytesIO()
                 with ZipFile(bundle, "w", ZIP_DEFLATED) as archive:
@@ -101,7 +162,9 @@ if build:
                         if paving_only.cells:
                             archive.writestr("unstruct.2dm", write_2dm(paving_only))
                     archive.writestr("attributes.json", attributes)
+                    archive.writestr("angle-failures.csv", angle_failures_csv(mesh))
                 st.session_state["downloads"] = (sms, medit, attributes, bundle.getvalue())
+            st.session_state["result"] = (fingerprint, mesh)
     except MeshError as exc:
         st.error(str(exc))
     except Exception:
@@ -149,10 +212,22 @@ if result:
         st.plotly_chart(fig, width="stretch")
         st.success("Validated: shared interfaces, no duplicate or hanging nodes, and coverage matching the reference geometry within numerical tolerance. Intentional disconnected basepoly areas are reported.")
     with quality:
+        q = mesh.report["quality"]
+        st.metric("All-element interior angle range", f"{q['minimum_element_angle']:.4f}° – {q['maximum_element_angle']:.4f}°")
+        st.write(f"Checked {q['all_elements_checked']:,} elements. Failing limits: {q['elements_failing_angles']:,} ({q['structure_elements_failing_angles']:,} structure; {q['paving_elements_failing_angles']:,} paving).")
+        if q["angle_failure_examples"]:
+            st.dataframe(q["angle_failure_examples"], hide_index=True, width="stretch")
         st.json(mesh.report)
         st.caption("Exclude and blank Mesh features remain unmeshed. use_Ela=1 applies that feature's Max_Ela in m²; use_Ela=0 uses the default. Area limits apply to generated paving, not preserved input elements. Shared interfaces are refined as needed.")
     for warning in mesh.warnings:
         st.warning(warning)
+    if mesh.report.get("export_blocked"):
+        st.error("Mesh export is blocked because some elements fail the required angle limits. Fixed corners may need geometry changes that cannot preserve all original node values. The preview and diagnostics remain available.")
+        st.download_button("Download angle failures (.csv)", angle_failures_csv(mesh), "angle-failures.csv", "text/csv")
+        st.download_button("Download validation report (.json)", json.dumps({**mesh.report, "warnings": mesh.warnings}, indent=2), "validation.json", "application/json")
+        st.stop()
+    if not mesh.report["quality"]["angles_passed"]:
+        st.error("Diagnostic mesh: strict angle acceptance is disabled and some elements fail the limits. Review the CSV in the result ZIP.")
     st.markdown("### Export your mesh")
     sms, medit, attributes, zipped = st.session_state["downloads"]
     exports = st.columns(3)
@@ -162,7 +237,7 @@ if result:
     exports[2].download_button("↓ Attributes & report", attributes, "attributes.json", "application/json", width="stretch")
     st.download_button("Download all mesh files (.zip)", zipped, "mesh-results.zip", "application/zip")
     if output_name == "merged":
-        st.caption("The ZIP also includes unstruct.2dm containing paving triangles only, with unused structure nodes removed.")
+        st.caption("The ZIP also includes unstruct.2dm containing paving/base cells only. Use merged.2dm as the complete result; it already includes the structure and shared interface nodes.")
 else:
     st.markdown("### A mesh that fits together")
     st.info("Upload your zipped basepoly shapefile, set the fallback maximum triangle area, then generate. Exclude/blank features produce no paving.")

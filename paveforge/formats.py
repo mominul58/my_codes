@@ -103,6 +103,7 @@ def read_2dm(text: str) -> Mesh:
 
 
 def write_2dm(mesh: Mesh) -> str:
+    _check_export(mesh)
     if not mesh.cells:
         raise MeshError("No triangular features were selected; no 2DM is generated.")
     node_ids, element_ids = export_ids(mesh)
@@ -169,6 +170,7 @@ def write_attributes(mesh: Mesh, *, compact: bool = False) -> str:
 
 def write_medit(mesh: Mesh) -> str:
     """Medit .mesh with 3D vertices, planar connectivity, and material references."""
+    _check_export(mesh)
     lines = ["MeshVersionFormatted 2", "Dimension 3", "Vertices", str(len(mesh.nodes))]
     lines.extend(f"{x:.17g} {y:.17g} {z:.17g} 0" for x, y, z in mesh.nodes)
     for size, tag in ((3, "Triangles"), (4, "Quadrilaterals")):
@@ -177,3 +179,8 @@ def write_medit(mesh: Mesh) -> str:
             lines.extend([tag, str(len(cells))])
             lines.extend(" ".join(str(n + 1) for n in c.nodes) + f" {c.material}" for c in cells)
     return "\n".join(lines + ["End", ""])
+
+
+def _check_export(mesh):
+    if mesh.report.get("export_blocked"):
+        raise MeshError("Mesh export blocked: one or more elements fail the required angle limits. Download the quality diagnostics and repair the fixed geometry, or explicitly disable strict angle acceptance for a diagnostic export.")

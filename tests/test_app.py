@@ -57,3 +57,25 @@ def test_merge_requires_input_mesh():
     app.button[0].click().run()
     assert not app.exception
     assert any("Upload an existing paving" in item.value for item in app.error)
+
+
+def test_angle_failures_block_mesh_downloads_and_offer_diagnostics():
+    app = AppTest.from_file(str(APP)).run()
+    app.checkbox[0].uncheck()
+    app.text_area[0].set_value("0,0\n10,0\n10,0.1")
+    app.button[0].click().run(timeout=30)
+    assert not app.exception
+    assert app.session_state["result"][1].report["export_blocked"]
+    labels = [item.label for item in app.get("download_button")]
+    assert labels == ["Download angle failures (.csv)", "Download validation report (.json)"]
+    assert any("export is blocked" in item.value for item in app.error)
+
+
+def test_transition_merge_controls_match_previous_tool():
+    app = AppTest.from_file(str(APP)).run()
+    app.radio[0].set_value("Merge existing 2DM meshes").run()
+    controls = {item.label: item.value for item in app.number_input}
+    assert controls["Selection distance (m)"] == 8
+    assert controls["Material ID to mark erased base elements"] == 99
+    assert controls["Maximum area for fill elements (m²)"] == 10
+    assert app.text_input[0].value == "EPSG:25832"

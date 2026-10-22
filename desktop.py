@@ -121,19 +121,29 @@ def write_report(path, report):
 
 def self_test(report_path=None):
     """Exercise bundled native libraries, CRS data, examples, meshing and exports."""
-    from paveforge import read_basepoly, read_2dm, generate_basepoly, write_2dm, write_medit
+    from paveforge import read_basepoly, read_2dm, generate_basepoly, merge_with_transition, write_2dm, write_medit
+    from paveforge.model import select_cells
     root = resource_root()
     base = read_basepoly((root / "examples/basepoly-shapefile.zip").read_bytes(), "basepoly.zip")
     structure = read_2dm((root / "examples/structure.2dm").read_text())
-    mesh = generate_basepoly(base, structure=structure, minimum_angle=0)
+    mesh = generate_basepoly(base, structure=structure, minimum_angle=10,
+                             near_structure_area=10, near_structure_distance=10,
+                             enforce_angle_limits=True, repair_source_angles=True)
     sms = read_2dm(write_2dm(mesh))
     if len(sms.nodes) != len(mesh.nodes) or len(sms.cells) != len(mesh.cells):
         raise RuntimeError("Bundled SMS export did not round-trip.")
     if "MeshVersionFormatted" not in write_medit(mesh):
         raise RuntimeError("Bundled Medit export failed.")
+    transition = merge_with_transition(select_cells(mesh, structure=False), structure, base,
+                                        selection_distance=8, erase_material=99, fill_area=10)
+    read_2dm(write_2dm(transition))
     report = {"status": "ok", "nodes": len(mesh.nodes), "elements": len(mesh.cells),
               "python": sys.version.split()[0], "frozen": bool(getattr(sys, "frozen", False)),
-              "gap_area": mesh.report["gap_area"], "duplicate_nodes": mesh.report["duplicate_nodes"]}
+              "gap_area": mesh.report["gap_area"], "duplicate_nodes": mesh.report["duplicate_nodes"],
+              "angles_passed": mesh.report["quality"]["angles_passed"],
+              "near_structure_area": mesh.report["near_structure_max_area"],
+              "transition_merge": transition.report["transition_merge"]["erased_base_elements"] > 0,
+              "transition_angles_passed": transition.report["quality"]["angles_passed"]}
     write_report(report_path, report)
     if sys.stdout is not None:
         print(json.dumps(report))

@@ -23,8 +23,19 @@ In the dashboard:
 - Import a structure 2DM if needed, then generate and download the result.
 - Use Merge existing 2DM meshes for an existing paving and structure pair.
 
-Fast mode enforces areas and topology but can leave very thin triangles near
-narrow boundaries. Review quality warnings before simulation. Existing source
+New in this version:
+- All triangles and quads are checked against 5 to 160 degree interior angles.
+  Mesh export is blocked on failures; download the angle-failure CSV to locate them.
+- Paving near structures defaults to 10 m2 within a selectable 10 m band.
+- Merge existing base + road/trench meshes with an 8 m erase-and-fill selection,
+  material marker 99, fill area 10 m2, and ETRS89 / UTM 32N (EPSG:25832).
+  Selected base cells are removed; far material-99 cells remain unchanged.
+- Automatic node welding checks up to 1 mm at full tolerance before export.
+- Efficient generation targets 10 degrees; Previous tool targets 26 degrees.
+  Fixed acute corners may still fail acceptance while original node XYZ is kept.
+
+merged.2dm already contains the structure; use it as the complete result.
+Existing source
 pieces outside basepoly are preserved only when Keep outside structure is on;
 no bridge is generated between intentional disconnected pieces.
 
