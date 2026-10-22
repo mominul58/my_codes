@@ -169,3 +169,12 @@ def test_custom_basepoly_field_selectors_match_previous_tool():
     assert result.regions[0].properties["Area"] == 12
     with pytest.raises(MeshError, match="missing"):
         read_basepoly(json.dumps(obj), field_mapping={"mesh": "MissingField"})
+
+
+def test_cleanup_preserves_original_exclusion_when_snapping_would_collapse_it():
+    base = BasePoly([Region(box(.1, .1, .2, .2), 42, mode="exclude")])
+    cleaned, report = align_basepoly(base, box(0, 0, 1, 1), 1.)
+    assert cleaned.regions[0].polygon.equals_exact(base.regions[0].polygon, 0)
+    assert cleaned.regions[0].mode == "exclude"
+    assert report["skipped_feature_ids"] == [42]
+    assert report["symmetric_difference_area"] == 0

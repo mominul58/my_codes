@@ -30,7 +30,7 @@ def align_basepoly(basepoly, structure_union, distance):
         fractions = np.clip(np.sum((original[point_ids] - edges[:, 0]) * vector, axis=1) / np.sum(vector**2, axis=1), 0, 1)
         mapped[point_ids] = edges[:, 0] + fractions[:, None] * vector
     cleaned = shapely.set_coordinates(geoms.copy(), mapped)
-    changed, warnings, output = 0, list(basepoly.warnings), []
+    changed, warnings, output, skipped = 0, list(basepoly.warnings), [], []
     offset = 0
     for region, geometry in zip(basepoly.regions, cleaned):
         count = len(shapely.get_coordinates(region.polygon))
@@ -42,7 +42,10 @@ def align_basepoly(basepoly, structure_union, distance):
             geometry = shapely.snap(geometry, shapely.MultiPoint(np.unique(refs, axis=0)), distance)
         offset += count
         if not geometry.is_valid or geometry.is_empty or geometry.area <= 0:
-            raise MeshError(f"Boundary cleanup would collapse or invalidate basepoly feature {region.feature}. Reduce cleanup distance or set it to zero.")
+            # Cleanup is optional. Keep the exact original feature when a
+            # proposed alignment would damage it; exclusions must never vanish.
+            geometry = region.polygon
+            skipped.append(region.feature)
         if not geometry.equals_exact(region.polygon, 0):
             changed += 1
         output.append(replace(region, polygon=geometry))
@@ -50,5 +53,8 @@ def align_basepoly(basepoly, structure_union, distance):
     delta = basepoly.domain.symmetric_difference(result.domain).area
     if changed:
         warnings.append(f"Aligned {changed:,} basepoly parts to fixed structure boundaries within {distance:g} m; changed paving footprint by {delta:.6f} m². Original structure node XYZ values remain unchanged.")
+    if skipped:
+        warnings.append(f"Kept {len(skipped):,} original basepoly parts because boundary cleanup would invalidate them. Skipped feature IDs are in the cleanup report.")
     return result, {"distance_m": distance, "changed_features": changed, "symmetric_difference_area": delta,
-                    "original_paving_area": basepoly.domain.area, "cleaned_paving_area": result.domain.area}
+                    "original_paving_area": basepoly.domain.area, "cleaned_paving_area": result.domain.area,
+                    "skipped_feature_ids": skipped}
