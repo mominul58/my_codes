@@ -124,7 +124,9 @@ def repair_mesh_angles(index, cells, source_count, tolerance, *, minimum=5., max
                 _rollback(index, local_length)
                 continue
             connectivity = np.asarray(ids)[result["triangles"]]
-            coords = np.asarray(index.nodes)[connectivity, :2]
+            # A patch contains only a few cells. Converting the whole million-
+            # node mesh for each patch made repair unnecessarily expensive.
+            coords = np.asarray([[index.nodes[int(n)][:2] for n in conn] for conn in connectivity])
             polys = shapely.polygons(coords)
             if not shapely.is_valid(polys).all() or (shapely.area(polys) <= tolerance**2).any():
                 _rollback(index, local_length)
