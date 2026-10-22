@@ -22,8 +22,15 @@ def align_basepoly(basepoly, structure_union, distance):
     geoms = np.asarray([r.polygon for r in basepoly.regions], dtype=object)
     original = shapely.get_coordinates(geoms)
     mapped = original.copy()
-    hits = tree.query_nearest(shapely.points(original), max_distance=distance, all_matches=False)
-    point_ids, edge_ids = hits
+    hits, distances = tree.query_nearest(shapely.points(original), max_distance=distance, all_matches=False, return_distance=True)
+    # Existing base meshes usually already share most polygon boundaries. Avoid
+    # resnapping those exact matches to nearby subdivision vertices: it adds work
+    # and can damage a small exclusion that was already correctly aligned.
+    coincidence = max(1e-10, float(np.spacing(np.abs(original).max())) * 8)
+    hit_points, hit_edges = hits
+    endpoint_distance = np.linalg.norm(original[hit_points, None, :] - segments[hit_edges], axis=2).min(axis=1)
+    move = (distances > coincidence) | ((endpoint_distance > coincidence) & (endpoint_distance <= distance))
+    point_ids, edge_ids = hits[:, move]
     if len(point_ids):
         edges = segments[edge_ids]
         vector = edges[:, 1] - edges[:, 0]

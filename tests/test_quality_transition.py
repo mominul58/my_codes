@@ -178,3 +178,12 @@ def test_cleanup_preserves_original_exclusion_when_snapping_would_collapse_it():
     assert cleaned.regions[0].mode == "exclude"
     assert report["skipped_feature_ids"] == [42]
     assert report["symmetric_difference_area"] == 0
+
+
+def test_already_matching_boundaries_are_kept_exactly():
+    polygon = box(0, 0, 10, 10)
+    base = BasePoly([Region(polygon, 1)])
+    cleaned, report = align_basepoly(base, polygon, .11)
+    assert cleaned.regions[0].polygon.equals_exact(polygon, 0)
+    assert report["changed_features"] == 0
+    assert report["skipped_feature_ids"] == []
