@@ -1,0 +1,38 @@
+PaveForge 0.2 - laptop quick start
+================================
+
+1. Extract the entire ZIP. Do not run the app from inside the ZIP.
+2. Install Python 3.12 from https://www.python.org/downloads/.
+3. Windows: double-click INSTALL_WINDOWS.bat once. Then open START_WINDOWS.bat.
+   Mac/Linux: open Terminal in this folder and run: bash START_MAC_LINUX.sh
+   First installation requires Internet access. Later use runs locally.
+4. Your browser opens the app. Keep the terminal open while working.
+
+CREATE UNSTRUCTURED 2DM
+- ZIP your matching basepoly.shp, basepoly.dbf, basepoly.shx, and basepoly.prj.
+- Select Create unstructured mesh and upload that ZIP.
+- Mesh=Triangular generates paving. Mesh=Exclude or blank stays empty.
+- use_Ela=1 (or 1.0) enables Max_Ela, the maximum triangle area in square metres.
+- use_Ela=0 uses the app's default maximum area instead.
+- Turn OFF Use the example structure when supplying your own polygon.
+- Optionally upload your structure 2DM to join it during generation.
+- Click Generate unstructured mesh; inspect warnings, then download the result ZIP.
+- Fast mode enforces maximum areas without angle refinement. Balanced and Quality
+  profiles can produce more elements and take longer near narrow boundaries.
+- Keep outside structure preserves source pieces outside basepoly and reports the
+  extended reference domain. It does not build bridges outside Triangular features.
+- With a structure imported, the ZIP includes both merged.2dm and paving-only
+  unstruct.2dm, as well as the Medit file and the attribute sidecar.
+
+MERGE EXISTING MESHES
+- Select Merge existing 2DM meshes.
+- Upload your unstructured 2DM and your structure 2DM. Disable the example structure.
+- Optionally provide basepoly so the app can identify and fill unintended gaps.
+- Original node values and element attributes are preserved. Splitting an element
+  creates child elements with the same attributes. Colliding IDs are remapped and
+  documented in attributes.json. Conflicting values at a shared node are rejected.
+
+Use the same projected CRS with metre units for all inputs.
+The native 2DM keeps extra element attributes. Medit has only one material reference;
+keep attributes.json with the .mesh file to retain the full attributes and source IDs.
+Press Ctrl+C in the terminal to stop the app.

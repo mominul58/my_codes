@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paveforge"
+version = "0.2.0"
+description = "Conforming triangular paving and structure mesh assembly"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0,<3",
+  "shapely>=2.1,<3",
+  "triangle>=20250106",
+  "streamlit>=1.50,<2",
+  "plotly>=6,<7",
+  "pyshp>=2.3,<3",
+  "pyproj>=3.7,<4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "meshio>=5.3,<6", "py2dm>=0.2.2,<1"]
+
+[project.scripts]
+paveforge = "paveforge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["paveforge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,124 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:32646"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "Mesh": "Triangular",
+        "use_Ela": 1,
+        "Max_Ela": 25
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              0,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              85
+            ],
+            [
+              0,
+              85
+            ],
+            [
+              0,
+              0
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "Mesh": "Triangular",
+        "use_Ela": 1.0,
+        "Max_Ela": 50
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              60,
+              0
+            ],
+            [
+              120,
+              0
+            ],
+            [
+              120,
+              65
+            ],
+            [
+              95,
+              65
+            ],
+            [
+              95,
+              85
+            ],
+            [
+              60,
+              85
+            ],
+            [
+              60,
+              0
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "Mesh": "Exclude",
+        "use_Ela": 1,
+        "Max_Ela": 0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              10,
+              55
+            ],
+            [
+              25,
+              55
+            ],
+            [
+              25,
+              70
+            ],
+            [
+              10,
+              70
+            ],
+            [
+              10,
+              55
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

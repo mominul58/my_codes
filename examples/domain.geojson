@@ -1,0 +1,8 @@
+{
+  "type": "Feature",
+  "properties": {"name": "Example domain", "units": "metres, local projected coordinates"},
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [[[0, 0], [120, 0], [120, 65], [95, 65], [95, 85], [0, 85], [0, 0]]]
+  }
+}
