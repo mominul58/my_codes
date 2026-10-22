@@ -43,6 +43,7 @@ jobs:
           $report = Join-Path $env:RUNNER_TEMP 'mesh-self-test.json'
           $app = Start-Process 'dist/PaveForge/PaveForge.exe' -ArgumentList '--self-test', '--self-test-report', $report -PassThru
           if (-not $app.WaitForExit(120000)) { $app.Kill(); throw 'Frozen mesh self-test timed out' }
+          if (Test-Path $report) { Get-Content $report }
           if ($app.ExitCode -ne 0) { throw "Frozen mesh self-test failed: $($app.ExitCode)" }
           $result = Get-Content $report -Raw | ConvertFrom-Json
           if ($result.status -ne 'ok' -or -not $result.frozen) { throw 'Frozen mesh report did not pass' }
@@ -53,6 +54,7 @@ jobs:
           $report = Join-Path $env:RUNNER_TEMP 'desktop-self-test.json'
           $app = Start-Process 'dist/PaveForge/PaveForge.exe' -ArgumentList '--desktop-smoke-report', $report -PassThru
           if (-not $app.WaitForExit(150000)) { $app.Kill(); throw 'Desktop smoke test timed out' }
+          if (Test-Path $report) { Get-Content $report }
           if ($app.ExitCode -ne 0) { throw "Desktop smoke test failed: $($app.ExitCode)" }
           $result = Get-Content $report -Raw | ConvertFrom-Json
           if ($result.status -ne 'ok' -or $result.http_health -ne 'ok') { throw 'Dashboard readiness failed' }
@@ -70,13 +72,23 @@ jobs:
           retention-days: 30
       - name: Upload diagnostic logs
         if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          Copy-Item build/PaveForge/warn-PaveForge.txt diagnostics -ErrorAction SilentlyContinue
+          Copy-Item "$env:RUNNER_TEMP/*self-test.json" diagnostics -ErrorAction SilentlyContinue
+          Copy-Item "$env:LOCALAPPDATA/PaveForge/logs/*.log" diagnostics -ErrorAction SilentlyContinue
+          Get-ChildItem diagnostics -File | Where-Object { $_.Extension -in '.json', '.log' } | ForEach-Object {
+            $text = (Get-Content $_.FullName -Tail 45) -join "`n"
+            $escaped = $text.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=$($_.Name)::$escaped"
+          }
+      - name: Save diagnostics artifact
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: Windows-build-diagnostics
-          path: |
-            build/PaveForge/warn-PaveForge.txt
-            ${{ runner.temp }}/*self-test.json
-            ~/AppData/Local/PaveForge/logs/*.log
+          path: diagnostics/
 
   release:
     needs: build

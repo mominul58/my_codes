@@ -181,7 +181,10 @@ def desktop(smoke_report=None):
         status.set("Dashboard could not start.")
         detail.set(f"{message} Log: {server.log_path}")
         if smoke_report:
-            write_report(smoke_report, {"status": "failed", "error": message})
+            log_tail = server.log_path.read_text(encoding="utf-8", errors="replace")[-8000:] if server.log_path.exists() else ""
+            worker_error_path = log_directory() / "launcher-error.log"
+            worker_error = worker_error_path.read_text(encoding="utf-8", errors="replace")[-8000:] if worker_error_path.exists() else ""
+            write_report(smoke_report, {"status": "failed", "error": message, "server_log": log_tail, "worker_error": worker_error})
             close()
         else:
             messagebox.showerror("PaveForge startup", f"{message}\n\nOpen logs for details.")
@@ -273,11 +276,11 @@ def main():
             return self_test(args.self_test_report)
         return desktop(args.desktop_smoke_report)
     except Exception as exc:
+        import traceback
         report = args.self_test_report or args.desktop_smoke_report
-        write_report(report, {"status": "failed", "error": str(exc)})
+        write_report(report, {"status": "failed", "error": str(exc), "traceback": traceback.format_exc()})
         if report:
             return 1
-        import traceback
         folder = log_directory()
         (folder / "launcher-error.log").write_text(traceback.format_exc(), encoding="utf-8")
         if os.name == "nt" and not args.serve:
@@ -289,4 +292,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     raise SystemExit(main())
