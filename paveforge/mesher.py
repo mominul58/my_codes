@@ -19,6 +19,18 @@ from .repair import repair_mesh_angles
 MAX_ELEMENTS = 100_000
 
 
+def _triangulate(data, options):
+    try:
+        return triangle.triangulate(data, options)
+    except RuntimeError as exc:
+        raise MeshError(
+            "Triangle could not mesh the constrained geometry at the requested precision. "
+            "Try the Fast generation profile (no optional angle refinement), a smaller node "
+            "merge distance for fine features, or simpler boundary geometry. Area, topology, "
+            "and measured angle checks still apply before export."
+        ) from exc
+
+
 def generate_mesh(domain: Polygon, element_size: float, structure: Mesh | None = None,
                   tolerance: float | None = None, material: int = 1,
                   elevation: float = 0., *, max_area: float | None = None,
@@ -230,7 +242,7 @@ def generate_basepoly(basepoly: BasePoly, default_max_area: float = 25.,
         quality = f"q{minimum_angle:g}" if minimum_angle else ""
         flags = f"p{quality}aAS{max_elements}Q" + ("YY" if fixed_segments else ("" if refine_interfaces else "Y"))
         announce(f"Triangulating {len(zones):,} regions; estimated minimum {planned:,.0f} total elements")
-        result = triangle.triangulate(data, flags)
+        result = _triangulate(data, flags)
         if "triangles" not in result:
             raise MeshError("Triangulation failed; check basepoly and structure boundaries.")
         near_triangles = np.zeros(len(result["triangles"]), dtype=bool)
@@ -260,7 +272,7 @@ def generate_basepoly(basepoly: BasePoly, default_max_area: float = 25.,
                     break
                 refine_data = {k: result[k] for k in ("vertices", "triangles", "segments", "triangle_attributes", "vertex_markers", "segment_markers") if k in result}
                 refine_data["triangle_max_area"] = local_limits[:, None]
-                result = triangle.triangulate(refine_data, f"rp{quality}aS{max_elements}Q" + ("YY" if fixed_segments else ("" if refine_interfaces else "Y")))
+                result = _triangulate(refine_data, f"rp{quality}aS{max_elements}Q" + ("YY" if fixed_segments else ("" if refine_interfaces else "Y")))
                 refinement_passes += 1
             else:
                 raise MeshError("Near-structure area refinement did not converge within eight passes. Increase the area or element budget.")

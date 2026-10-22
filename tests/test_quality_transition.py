@@ -249,3 +249,14 @@ def test_conforming_new_paving_keeps_fill_material_and_generated_identity():
     assert repaired == 1 and len(cells) > 1
     assert all(c.id is None and c.material == 5 and c.region == 42 for c in cells)
     validate_mesh(Mesh(np.asarray(index.nodes), cells), box(0, 0, 10, 10), 1e-6)
+
+
+def test_native_precision_failure_is_reported_as_an_actionable_mesh_error(monkeypatch):
+    import paveforge.mesher as module
+
+    def out_of_precision(*args, **kwargs):
+        raise RuntimeError("Triangulation failed")
+
+    monkeypatch.setattr(module.triangle, "triangulate", out_of_precision)
+    with pytest.raises(MeshError, match="requested precision.*Fast generation profile"):
+        generate_basepoly(BasePoly([Region(box(0, 0, 10, 10), 1)]))
