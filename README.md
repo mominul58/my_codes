@@ -2,11 +2,13 @@
 
 A Python mesh studio for creating triangular unstructured meshes from a basepoly shapefile and merging them with SMS `.2dm` structure meshes. Run it as a browser app or a command-line tool.
 
-On Windows, extract the complete download ZIP, install Python 3.12, open `INSTALL_WINDOWS.bat` once, then `START_WINDOWS.bat`. On Mac/Linux run `bash START_MAC_LINUX.sh` from the extracted folder. See `QUICKSTART.txt` for the shortest usage guide. Windows launcher files are provided but have not been executed on Windows in the Linux cloud environment.
+For Windows, the portable download is published under [Releases](https://github.com/mominul58/my_codes/releases) only after its Windows build and smoke tests pass. Download `PaveForge-Windows.zip`, extract the entire folder, and open **PaveForge.exe**. It includes Python and dependencies; your installed Python version does not matter. A desktop window starts the local dashboard and opens your browser. Keep the desktop window open while working. See `PORTABLE_README.txt` inside the source checkout or `READ_ME_FIRST.txt` in the portable package.
+
+To run from source on Windows, extract the source ZIP and open **START_WINDOWS.bat**. It supports standard Python **3.12 and 3.13**, automatically installs/repairs dependencies when necessary, then opens the desktop dashboard. `INSTALL_WINDOWS.bat` can force a repair. Startup errors remain visible, and logs are available from the desktop window. On Mac/Linux run `bash START_MAC_LINUX.sh`. See `QUICKSTART.txt` for input examples.
 
 ## Get started
 
-Python 3.12 or newer is required; Python 3.12 is the tested cloud runtime.
+Source installation supports Python 3.12 and 3.13. Dependencies are locked across Windows, macOS, and Linux with platform markers and artifact hashes.
 
 ```bash
 cd /workspace/my_codes
@@ -16,7 +18,7 @@ python3 -m venv .venv
 .venv/bin/python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501
 ```
 
-On another computer, run these commands from your checkout instead of `/workspace/my_codes`. Dependencies are pinned with artifact hashes in `requirements.lock`, including the development/test tools. No accounts, API keys, database, or external service are needed at runtime.
+On another computer, run these commands from your checkout instead of `/workspace/my_codes`. Runtime dependencies are pinned with artifact hashes in `requirements.lock`; test dependencies are separate in `requirements-dev.lock`, and executable build tools in `requirements-build.lock`. No accounts, API keys, database, or external service are needed at runtime.
 
 In the app, select **Create unstructured mesh**, upload basepoly, optionally import a structure `.2dm`, set the fallback maximum triangle area, and select **Generate unstructured mesh**. The example structure is enabled initially; turn it off when using your own input. Download individual mesh files or a ZIP containing `.2dm`, Medit `.mesh`, and the full attributes/report JSON. Results and exports are cached rather than recomputed on every interaction.
 
@@ -94,7 +96,12 @@ Merged SMS records are sorted by their preserved IDs for reader compatibility. P
 
 ## Development and validation
 
+Build the Windows executable on Windows with `BUILD_WINDOWS.bat`, or let the `Windows desktop app` GitHub Actions workflow build it. The workflow tests Python 3.13 and the source installer, bundles Python with PyInstaller, then exercises the frozen native mesh engine and a desktop window with a real local HTTP readiness check. It publishes a portable ZIP only after those checks pass. Linux PyInstaller cannot produce a Windows executable.
+
+Desktop source launch: `python desktop.py`. Headless mesh/bundle diagnostic: `python desktop.py --self-test`. Source-install logs are under `%LOCALAPPDATA%\PaveForge\logs` on Windows. Incomplete environments are renamed as `.venv-backup-*` rather than deleted. The first source launch requires network access for installation; portable releases run locally without installation.
+
 ```bash
+.venv/bin/python -m pip install --require-hashes -r requirements-dev.lock
 .venv/bin/python -m pytest -q
 .venv/bin/python -m pip check
 ```
@@ -106,8 +113,12 @@ Vectorized geometry checks and a verified coverage-union path replace per-edge q
 To intentionally refresh the dependency lock:
 
 ```bash
-uv pip compile pyproject.toml --extra dev --generate-hashes \
-  --output-file requirements.lock --python .venv/bin/python
+uv pip compile pyproject.toml --universal --generate-hashes \
+  --output-file requirements.lock --python-version 3.12
+uv pip compile pyproject.toml --extra dev --universal --generate-hashes \
+  --output-file requirements-dev.lock --python-version 3.12
+uv pip compile requirements-build.in --universal --generate-hashes \
+  --output-file requirements-build.lock --python-version 3.12
 ```
 
 Build a portable source archive with `.venv/bin/python scripts/package.py /tmp/PaveForge.zip`. It excludes the virtual environment, caches, outputs, and Git metadata. The cloud task already has its own isolated checkout. Use it; do not create another Git worktree unless explicitly requested. Restart Streamlit in a new task: live processes do not survive snapshots.

@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "paveforge"
-version = "0.2.0"
+version = "0.3.0"
 description = "Conforming triangular paving and structure mesh assembly"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
   "numpy>=2.0,<3",
   "shapely>=2.1,<3",

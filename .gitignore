@@ -8,3 +8,5 @@ dist/
 .streamlit/secrets.toml
 outputs/
 .cache/
+.venv-backup-*/
+*.spec.bak

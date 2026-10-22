@@ -1,12 +1,20 @@
-PaveForge 0.2 - laptop quick start
+PaveForge 0.3 - laptop quick start
 ================================
 
-1. Extract the entire ZIP. Do not run the app from inside the ZIP.
-2. Install Python 3.12 from https://www.python.org/downloads/.
-3. Windows: double-click INSTALL_WINDOWS.bat once. Then open START_WINDOWS.bat.
+PORTABLE WINDOWS EXE (Python installation not needed)
+- Open https://github.com/mominul58/my_codes/releases/latest
+- Download PaveForge-Windows.zip from Assets after a Windows build has passed.
+- Extract All, open the PaveForge folder, then double-click PaveForge.exe.
+- Keep the whole folder, including _internal, together.
+
+SOURCE VERSION
+1. Extract the entire source ZIP. Do not run inside the ZIP.
+2. Use your existing Python 3.13, or install Python 3.12/3.13.
+3. Windows: open START_WINDOWS.bat. It installs or repairs dependencies and opens
+   a desktop window. INSTALL_WINDOWS.bat can force a repair if needed.
    Mac/Linux: open Terminal in this folder and run: bash START_MAC_LINUX.sh
    First installation requires Internet access. Later use runs locally.
-4. Your browser opens the app. Keep the terminal open while working.
+4. The desktop window opens the browser dashboard. Keep it open while working.
 
 CREATE UNSTRUCTURED 2DM
 - ZIP your matching basepoly.shp, basepoly.dbf, basepoly.shx, and basepoly.prj.

@@ -1,26 +1,27 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-py -3.12 --version >nul 2>&1
-if errorlevel 1 (
-  echo Please install Python 3.12 from python.org first, including the Python launcher.
-  goto failed
+set "PAVEFORGE_PYTHON=py -3.13"
+py -3.13 -c "import sys" >nul 2>&1
+if not errorlevel 1 goto selected
+set "PAVEFORGE_PYTHON=py -3.12"
+py -3.12 -c "import sys" >nul 2>&1
+if not errorlevel 1 goto selected
+set "PAVEFORGE_PYTHON=python"
+python -c "import sys; raise SystemExit(sys.version_info[:2] not in ((3,12),(3,13)))" >nul 2>&1
+if not errorlevel 1 goto selected
+echo Python 3.12 or 3.13 was not found. Install standard 64-bit Python, including the Python launcher.
+goto failed
+:selected
+if "%~2"=="--if-needed" (
+  %PAVEFORGE_PYTHON% scripts\install_windows.py --if-needed
+) else (
+  %PAVEFORGE_PYTHON% scripts\install_windows.py
 )
-if not exist ".venv\Scripts\python.exe" (
-  py -3.12 -m venv .venv
-  if errorlevel 1 goto failed
-)
-set "PIP_CACHE_DIR=%CD%\.cache\pip"
-".venv\Scripts\python.exe" -m pip install --require-hashes -r requirements.lock
 if errorlevel 1 goto failed
-".venv\Scripts\python.exe" -m pip install --no-deps -e .
-if errorlevel 1 goto failed
-".venv\Scripts\python.exe" -m pip check
-if errorlevel 1 goto failed
-echo Installation complete. Open START_WINDOWS.bat to use PaveForge.
 if not "%~1"=="--no-pause" pause
 exit /b 0
 :failed
-echo Installation failed. Copy the error above for troubleshooting.
-pause
+echo Installation failed. The window stays open so you can read the error.
+if not "%~1"=="--no-pause" pause
 exit /b 1
