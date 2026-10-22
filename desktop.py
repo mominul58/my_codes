@@ -8,6 +8,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -21,7 +22,11 @@ def resource_root() -> Path:
 def log_directory() -> Path:
     base = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local" / "state"))
     folder = base / "PaveForge" / "logs"
-    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        folder = Path(tempfile.gettempdir()) / "PaveForge" / "logs"
+        folder.mkdir(parents=True, exist_ok=True)
     return folder
 
 
@@ -100,6 +105,7 @@ def serve(port: int):
     os.chdir(resource_root())
     from streamlit.web import bootstrap
     options = {
+        "global.developmentMode": False,
         "server.address": "127.0.0.1", "server.port": port,
         "server.headless": True, "server.fileWatcherType": "none",
         "server.maxUploadSize": 250, "browser.gatherUsageStats": False,
