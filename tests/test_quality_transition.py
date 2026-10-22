@@ -108,6 +108,7 @@ def test_erase_refill_merge_keeps_far_material_99_and_source_attributes():
     assert all(c.material == 3 and c.attributes == ("0.003", "road") for c in mesh.cells if c.structure)
     new = [c for c in mesh.cells if c.id is None]
     assert new and all(c.material == 5 for c in new)
+    assert mesh.report["max_generated_paving_area"] <= 10 * (1 + 1e-7)
     assert max(Polygon(mesh.nodes[list(c.nodes), :2]).area for c in new) <= 10 * (1 + 1e-7)
     lookup = dict(zip(mesh.node_ids, mesh.nodes))
     for nid, xyz in zip(structure.node_ids, structure.nodes):
@@ -187,3 +188,64 @@ def test_already_matching_boundaries_are_kept_exactly():
     assert cleaned.regions[0].polygon.equals_exact(polygon, 0)
     assert report["changed_features"] == 0
     assert report["skipped_feature_ids"] == []
+
+
+def test_thin_valid_triangle_is_an_angle_failure_not_a_hanging_node():
+    nodes = np.array([[500000., 5550000., 0], [500010., 5550000., 0], [500005., 5550000.0000001, 0]])
+    mesh = Mesh(nodes, [Cell((0, 1, 2))])
+    domain = Polygon(nodes[:, :2])
+    report = validate_mesh(mesh, domain, .001)
+    assert report["hanging_nodes"] == 0
+    assert report["quality"]["elements_failing_angles"] == 1
+
+
+def test_failed_optional_repair_restores_original_coordinates_and_connectivity(monkeypatch):
+    import paveforge.repair as module
+    index = NodeIndex(1e-6)
+    for x, y in [(0, 0), (10, 0), (10, .5), (0, .5), (0, -2.5), (10, -2.5), (10, 3), (0, 3)]:
+        index.add(x, y, x + y)
+    original = np.asarray(index.nodes).copy()
+    cells = [Cell((0, 1, 2), 1, True, (), 100), Cell((0, 2, 3), 1, True, (), 101),
+             Cell((4, 5, 1, 0), 2, True, (), 200), Cell((3, 2, 6, 7), 3, True, (), 300)]
+
+    def incompatible_repair(index, *args, **kwargs):
+        x, y, _ = index.nodes[0]
+        index.nodes[0] = (x, y, 999.)
+        index.add(100, 100, 100)
+        raise MeshError("Cannot conform this optional repair")
+
+    monkeypatch.setattr(module, "conform_sources", incompatible_repair)
+    result, audit = repair_mesh_angles(index, cells, len(original), 1e-6)
+    assert result == cells
+    np.testing.assert_array_equal(index.nodes, original)
+    assert audit[-1]["accepted"] is False
+    assert index.add(*original[0]) == 0
+
+
+def test_welding_collapse_stops_before_source_repair_or_export(monkeypatch):
+    import paveforge.mesher as module
+    original = module.triangle.triangulate
+
+    def close_steiner_vertex(data, options):
+        result = original(data, options)
+        a, b, _ = result["triangles"][0]
+        new = len(result["vertices"])
+        result["vertices"] = np.vstack([result["vertices"], result["vertices"][a] + [.0001, .0001]])
+        result["triangles"] = np.vstack([result["triangles"], [a, b, new]])
+        result["triangle_attributes"] = np.vstack([result["triangle_attributes"], result["triangle_attributes"][0]])
+        return result
+
+    monkeypatch.setattr(module.triangle, "triangulate", close_steiner_vertex)
+    with pytest.raises(MeshError, match="Node welding collapsed.*Reduce the node merge distance"):
+        generate_basepoly(BasePoly([Region(box(0, 0, 10, 10), 1)]), tolerance=.001)
+
+
+def test_conforming_new_paving_keeps_fill_material_and_generated_identity():
+    from paveforge.conform import conform_sources
+    index = NodeIndex(1e-6)
+    for x, y in [(0, 0), (10, 0), (10, 10), (0, 10), (5, 0)]:
+        index.add(x, y, 2.)
+    cells, repaired = conform_sources(index, [Cell((0, 1, 2, 3), material=5, region=42)], 5, 1e-6)
+    assert repaired == 1 and len(cells) > 1
+    assert all(c.id is None and c.material == 5 and c.region == 42 for c in cells)
+    validate_mesh(Mesh(np.asarray(index.nodes), cells), box(0, 0, 10, 10), 1e-6)

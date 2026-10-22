@@ -15,6 +15,12 @@ def default_weld_tolerance(span):
     return max(1e-10, min(.001, span * 1e-5))
 
 
+def edge_precision(nodes):
+    """Collinearity depends on coordinate precision, not node merge distance."""
+    scale = float(np.abs(np.asarray(nodes)[:, :2]).max())
+    return max(1e-12, float(np.spacing(scale)) * 16)
+
+
 @dataclass(frozen=True)
 class Cell:
     nodes: tuple[int, ...]

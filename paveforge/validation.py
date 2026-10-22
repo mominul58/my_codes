@@ -2,7 +2,7 @@
 import numpy as np
 import shapely
 
-from .model import Mesh, MeshError
+from .model import Mesh, MeshError, edge_precision
 from .quality import quality_report
 
 
@@ -32,7 +32,7 @@ def validate_mesh(mesh: Mesh, domain, tolerance: float, *, angle_min=5., angle_m
         all_edges.append(np.sort(edges.reshape(-1, 2), axis=1))
         all_owners.append(np.repeat(selection, size))
     areas = shapely.area(polys)
-    if not shapely.is_valid(polys).all() or (areas <= tolerance**2).any():
+    if not shapely.is_valid(polys).all() or (areas <= 0).any():
         raise MeshError("Mesher produced a degenerate or self-intersecting element.")
     edges = np.concatenate(all_edges)
     owner = np.concatenate(all_owners)
@@ -63,7 +63,8 @@ def validate_mesh(mesh: Mesh, domain, tolerance: float, *, angle_min=5., angle_m
     if components != expected:
         raise MeshError(f"Mesh has {components} disconnected element regions; expected {expected} from basepoly.")
     line_geometries = shapely.linestrings(mesh.nodes[unique, :2])
-    edge_index, node_index = tree.query(line_geometries, predicate="dwithin", distance=tolerance * .25)
+    precision = edge_precision(mesh.nodes)
+    edge_index, node_index = tree.query(line_geometries, predicate="dwithin", distance=precision)
     endpoints = unique[edge_index]
     if ((node_index != endpoints[:, 0]) & (node_index != endpoints[:, 1])).any():
         raise MeshError("Hanging node detected on an element edge.")
@@ -95,4 +96,5 @@ def validate_mesh(mesh: Mesh, domain, tolerance: float, *, angle_min=5., angle_m
         "minimum_paving_angle": quality["minimum_paving_angle"], "vectorized_coverage": fast,
         "quality": quality,
         "duplicate_check_tolerance": tolerance,
+        "edge_collinearity_precision": precision,
     }

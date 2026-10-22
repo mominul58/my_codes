@@ -7,7 +7,7 @@ import shapely
 import triangle
 
 from .conform import conform_sources
-from .model import Mesh
+from .model import Mesh, MeshError
 from .quality import cell_angle_extrema, interior_angles
 from .validation import polygon_parts
 
@@ -86,6 +86,7 @@ def repair_mesh_angles(index, cells, source_count, tolerance, *, minimum=5., max
             groups.append(group)
         del edges, owners, inverse, edge_parts, owner_parts, selected_edges, by_edge
         length = len(index.nodes)
+        original_nodes = list(index.nodes)
         removed, replacements, patches = set(), [], []
         next_id = max((c.id or 0 for c in cells), default=0) + 1
         for group in groups:
@@ -151,12 +152,21 @@ def repair_mesh_angles(index, cells, source_count, tolerance, *, minimum=5., max
         if not patches:
             break
         candidate = [c for i, c in enumerate(cells) if i not in removed] + replacements
-        candidate, _ = conform_sources(index, candidate, source_count, tolerance, max_elements=max_elements)
+        try:
+            candidate, _ = conform_sources(index, candidate, source_count, tolerance, max_elements=max_elements)
+        except MeshError as exc:
+            _rollback(index, length)
+            index.nodes[:] = original_nodes
+            audit.append({"pass": attempt + 1, "accepted": False, "before": before, "after": before,
+                          "reason": str(exc)})
+            announce("Kept the previous connectivity because this angle-repair pass could not preserve valid interfaces")
+            break
         after = int(_bad(index, candidate, minimum, maximum).sum())
         if after >= before or len(candidate) > max_elements:
             _rollback(index, length)
+            index.nodes[:] = original_nodes
             break
         cells = candidate
-        audit.append({"pass": attempt + 1, "before": before, "after": after, "patches": patches})
+        audit.append({"pass": attempt + 1, "accepted": True, "before": before, "after": after, "patches": patches})
         announce(f"Angle repair reduced failing elements from {before:,} to {after:,}")
     return cells, audit

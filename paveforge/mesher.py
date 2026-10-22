@@ -109,7 +109,7 @@ def generate_basepoly(basepoly: BasePoly, default_max_area: float = 25.,
                 raise MeshError("Structures must contain triangles or quadrilaterals.")
             ids = tuple(source_map[i] for i in cell.nodes)
             p = Polygon([index.nodes[i][:2] for i in ids])
-            if not p.is_valid or p.area <= tolerance**2:
+            if not p.is_valid or p.area <= 0:
                 raise MeshError("Structure contains a self-intersecting or degenerate element.")
             ccw = p.exterior.is_ccw
             struct_polys.append(p)
@@ -272,6 +272,14 @@ def generate_basepoly(basepoly: BasePoly, default_max_area: float = 25.,
         xy = np.asarray(index.nodes)[connectivity, :2]
         a, b = xy[:, 1] - xy[:, 0], xy[:, 2] - xy[:, 0]
         actual_areas = np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) / 2
+        collapsed = actual_areas <= 0
+        if collapsed.any():
+            raise MeshError(
+                f"Node welding collapsed {int(collapsed.sum()):,} new paving elements at the "
+                f"{tolerance:g} m merge distance. No mesh can be exported. Reduce the node "
+                "merge distance, or regenerate an old base mesh from basepoly before merging. "
+                "Deleting these cells could leave voids or disconnected interfaces."
+            )
         area_limits = np.asarray([limit for _, limit, _ in zones])[zone_indices]
         if near_structure_area is not None and struct_polys:
             area_limits[near_triangles] = np.minimum(area_limits[near_triangles], near_structure_area)
@@ -309,8 +317,13 @@ def generate_basepoly(basepoly: BasePoly, default_max_area: float = 25.,
     mesh = Mesh(np.asarray([index.nodes[i] for i in used]),
                 [replace(c, nodes=tuple(remap[i] for i in c.nodes)) for c in cells], warnings,
                 node_ids=ids, node_attributes=extras)
+    new_paving = [c for c in mesh.cells if not c.structure and c.id is None]
+    max_generated_area = 0.
+    if new_paving:
+        new_polys = shapely.polygons(mesh.nodes[np.asarray([c.nodes for c in new_paving]), :2])
+        max_generated_area = float(shapely.area(new_polys).max())
     if zones and near_structure_area is not None and struct_polys:
-        paving = np.asarray([c.nodes for c in mesh.cells if not c.structure and len(c.nodes) == 3])
+        paving = np.asarray([c.nodes for c in new_paving if len(c.nodes) == 3])
         if len(paving):
             near_polys = shapely.polygons(mesh.nodes[paving, :2])
             near_triangles = shapely.intersects(sizing_band, near_polys)
@@ -323,6 +336,7 @@ def generate_basepoly(basepoly: BasePoly, default_max_area: float = 25.,
     mesh.report = validate_mesh(mesh, domain, tolerance, angle_min=angle_min, angle_max=angle_max)
     mesh.report.update({"target_element_size": target_element_size, "default_max_area": default_max_area,
                         "target_area": max(limits, default=default_max_area), "strict_max_area": strict_area,
+                        "new_paving_triangles": len(new_paving), "max_generated_paving_area": max_generated_area,
                         "weld_tolerance": tolerance, "input_domain_area": domain.area,
                         "welded_node_id_map": aliases,
                         "outside_structure_area": outside_structure_area, "element_budget": max_elements,

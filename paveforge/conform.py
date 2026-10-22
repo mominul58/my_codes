@@ -4,7 +4,7 @@ import numpy as np
 import shapely
 import triangle
 
-from .model import MeshError
+from .model import MeshError, edge_precision
 from .quality import interior_angles
 
 
@@ -28,7 +28,7 @@ def conform_sources(index, cells, source_count, tolerance, *, minimum_angle=0.,
     announce(f"Checking {len(unique):,} source edges against {len(xyz):,} shared nodes")
     point_tree = shapely.STRtree(shapely.points(xyz[:, :2]))
     edges = shapely.linestrings(xyz[unique, :2])
-    edge_hit, node_hit = point_tree.query(edges, predicate="dwithin", distance=tolerance * .25)
+    edge_hit, node_hit = point_tree.query(edges, predicate="dwithin", distance=edge_precision(xyz))
     announce(f"Found {len(edge_hit):,} source-edge/node contacts")
     ends = unique[edge_hit]
     interior = (node_hit != ends[:, 0]) & (node_hit != ends[:, 1])
@@ -124,8 +124,8 @@ def conform_sources(index, cells, source_count, tolerance, *, minimum_angle=0.,
                 raise MeshError("Could not interpolate a repaired source node inside its parent element.")
             mapping.append(index.add(*point, float(z)))
         for n, tri in enumerate(result["triangles"]):
-            eid = cell.id if n == 0 else next_id
-            if n:
+            eid = (cell.id if n == 0 else next_id) if cell.id is not None else None
+            if n and cell.id is not None:
                 next_id += 1
             output.append(replace(cell, nodes=tuple(mapping[int(j)] for j in tri), id=eid))
         if len(output) > max_elements:
